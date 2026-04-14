@@ -162,13 +162,9 @@ extern volatile BoatPlaceState_t Boat_State;     /* Which boat is being placed  
 extern volatile uint8_t        P1_Hits;          /* Number of hits Player 1 has scored  */
 extern volatile uint8_t        P2_Hits;          /* Number of hits Player 2 has scored  */
 
-/* ---- Display buffer: 8 digits, each a 7-seg pattern byte ---- */
-extern volatile uint8_t        Display_Buffer[8];
-
-/* ---- PWM dimming buffer: brightness per digit (0-10) ---- */
-extern volatile uint8_t        Brightness_Buffer[8];
-
-/* ---- Cursor blink control ---- */
+/* Display and PWM rendering globals */
+extern volatile uint8_t        Display_Buffer_Full[8];
+extern volatile uint8_t        Display_Buffer_Dim[8];
 extern volatile uint16_t       Blink_Counter;    /* ms counter for blink timing        */
 extern volatile uint8_t        Blink_State;      /* 0 or 1, toggles at blink rate      */
 
@@ -200,7 +196,7 @@ extern uint16_t Read_ADC(uint8_t channel);
 
 /* Brightness values for shot display */
 #define BRIGHT_FULL          10   /* 100% brightness for hits   */
-#define BRIGHT_HALF          5    /* 50% brightness for misses  */
+#define BRIGHT_HALF          2    /* 20% brightness for misses  */
 #define BRIGHT_OFF           0    /* Segment not lit            */
 
 /* Debounce delay in milliseconds for button presses */

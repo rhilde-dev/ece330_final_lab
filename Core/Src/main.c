@@ -124,13 +124,9 @@ volatile BoatPlaceState_t Boat_State = BOAT_SINGLE_1;
 volatile uint8_t P1_Hits = 0;
 volatile uint8_t P2_Hits = 0;
 
-/* Display buffer: each element holds the 7-seg pattern for one digit.
- * The SysTick ISR continuously outputs this buffer to the physical display. */
-volatile uint8_t Display_Buffer[8] = {0};
-
-/* Brightness buffer: PWM duty per digit (0 = off, 10 = full brightness).
- * The SysTick ISR compares against a rolling ramp counter for software PWM. */
-volatile uint8_t Brightness_Buffer[8] = {10, 10, 10, 10, 10, 10, 10, 10};
+/* Display buffer: split into Full Brightness and Dim Brightness segments */
+volatile uint8_t Display_Buffer_Full[8] = {0};
+volatile uint8_t Display_Buffer_Dim[8] = {0};
 
 /* Cursor blink control — toggled by SysTick */
 volatile uint16_t Blink_Counter = 0;
@@ -326,8 +322,8 @@ void Display_Clear(void) {
   uint8_t i;
   for (i = 0; i < 8; i++) {
     Seven_Segment_Digit(i, SPACE, 0);
-    Display_Buffer[i] = SPACE;
-    Brightness_Buffer[i] = BRIGHT_FULL;
+    Display_Buffer_Full[i] = SPACE;
+    Display_Buffer_Dim[i] = 0;
   }
 }
 
@@ -343,7 +339,7 @@ void Display_Clear(void) {
 void Display_Refresh(void) {
   uint8_t i;
   for (i = 0; i < 8; i++) {
-    Seven_Segment_Digit(i, Display_Buffer[i], 0);
+    Seven_Segment_Digit(i, Display_Buffer_Full[i] | Display_Buffer_Dim[i], 0);
   }
 }
 
@@ -535,33 +531,24 @@ void Build_Score_Message(void) {
 void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
                     Cursor_t *cursor) {
   uint8_t digit;
-  uint8_t segPattern; /* Accumulated segment pattern for this digit */
-  uint8_t brightMin;  /* Track minimum brightness needed for PWM */
-
   for (digit = 0; digit < 8; digit++) {
-    segPattern = 0;
-    brightMin = BRIGHT_FULL;
+    uint8_t fullPattern = 0;
+    uint8_t dimPattern = 0;
 
     /*------------------------------------------------------------------
      * Horizontal segments: top (a), middle (g), bottom (d)
-     * Array indexing: horizMap[row][digit], horizShots[row][digit]
      *-----------------------------------------------------------------*/
-
     /* Top horizontal row — segment 'a' (bit 0) */
     {
       uint8_t hasBoat = boats->horizMap[0][digit];
       uint8_t hasShot = shots->horizShots[0][digit];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 0); /* Turn on segment 'a' */
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 0); /* Hit: full brightness */
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 0); /* Miss: will be dimmed via PWM */
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 0);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 0);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 0);
     }
 
     /* Middle horizontal row — segment 'g' (bit 6) */
@@ -569,16 +556,12 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
       uint8_t hasBoat = boats->horizMap[1][digit];
       uint8_t hasShot = shots->horizShots[1][digit];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 6);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 6);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 6);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 6);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 6);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 6);
     }
 
     /* Bottom horizontal row — segment 'd' (bit 3) */
@@ -586,43 +569,30 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
       uint8_t hasBoat = boats->horizMap[2][digit];
       uint8_t hasShot = shots->horizShots[2][digit];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 3);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 3);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 3);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 3);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 3);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 3);
     }
 
     /*------------------------------------------------------------------
      * Vertical segments: left pair (f=top, e=bottom),
      *                    right pair (b=top, c=bottom)
-     * Each digit shows 2 of the 16 vertical columns:
-     *   Left vertical column index  = digit * 2
-     *   Right vertical column index = digit * 2 + 1
-     * Array indexing: vertMap[row][col], vertShots[row][col]
      *-----------------------------------------------------------------*/
-
     /* Left-top vertical — segment 'f' (bit 5) */
     {
       uint8_t col = digit * 2;
       uint8_t hasBoat = boats->vertMap[0][col];
       uint8_t hasShot = shots->vertShots[0][col];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 5);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 5);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 5);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 5);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 5);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 5);
     }
 
     /* Right-top vertical — segment 'b' (bit 1) */
@@ -631,16 +601,12 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
       uint8_t hasBoat = boats->vertMap[0][col];
       uint8_t hasShot = shots->vertShots[0][col];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 1);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 1);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 1);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 1);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 1);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 1);
     }
 
     /* Left-bottom vertical — segment 'e' (bit 4) */
@@ -649,16 +615,12 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
       uint8_t hasBoat = boats->vertMap[1][col];
       uint8_t hasShot = shots->vertShots[1][col];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 4);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 4);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 4);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 4);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 4);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 4);
     }
 
     /* Right-bottom vertical — segment 'c' (bit 2) */
@@ -667,63 +629,52 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
       uint8_t hasBoat = boats->vertMap[1][col];
       uint8_t hasShot = shots->vertShots[1][col];
 
-      if (showBoats && hasBoat) {
-        segPattern |= (1 << 2);
-      }
-      if (hasShot && hasBoat) {
-        segPattern |= (1 << 2);
-      } else if (hasShot && !hasBoat) {
-        segPattern |= (1 << 2);
-        if (brightMin > BRIGHT_HALF)
-          brightMin = BRIGHT_HALF;
-      }
+      if (showBoats && hasBoat)
+        fullPattern |= (1 << 2);
+      else if (hasShot && hasBoat)
+        fullPattern |= (1 << 2);
+      else if (hasShot && !hasBoat)
+        dimPattern |= (1 << 2);
     }
 
     /*------------------------------------------------------------------
-     * Cursor overlay: blink the segment at the cursor position
+     * Cursor Blink Logic
      *-----------------------------------------------------------------*/
-    if (cursor != 0 && Blink_State) {
-      uint8_t cursorOnThisDigit = 0;
-      uint8_t cursorSegBit = 0;
+    if (cursor && cursor->visible) {
+      if (Blink_State) {
+        uint8_t cursorOnThisDigit = 0;
+        uint8_t cursorSegBit = 0;
 
-      if (cursor->onVertical) {
-        /* Vertical cursor: check if this digit contains the cursor column */
-        uint8_t cursorCol = cursor->x;                 /* 0..15 */
-        uint8_t digitForCol = cursorCol / 2;           /* Which digit */
-        uint8_t isLeft = (cursorCol % 2 == 0) ? 1 : 0; /* Left or right vert */
-
-        if (digitForCol == digit) {
-          cursorOnThisDigit = 1;
-          if (cursor->y == 0) {
-            /* Top row vertical */
-            cursorSegBit = isLeft ? 5 : 1; /* f or b */
-          } else {
-            /* Bottom row vertical */
-            cursorSegBit = isLeft ? 4 : 2; /* e or c */
+        if (cursor->onVertical) {
+          if (cursor->x / 2 == digit) {
+            cursorOnThisDigit = 1;
+            uint8_t isLeft = (cursor->x % 2 == 0) ? 1 : 0;
+            if (cursor->y == 0)
+              cursorSegBit = isLeft ? 5 : 1;
+            else
+              cursorSegBit = isLeft ? 4 : 2;
+          }
+        } else {
+          if (cursor->x == digit) {
+            cursorOnThisDigit = 1;
+            if (cursor->y == 0)
+              cursorSegBit = 0;
+            else if (cursor->y == 1)
+              cursorSegBit = 6;
+            else
+              cursorSegBit = 3;
           }
         }
-      } else {
-        /* Horizontal cursor: check if this digit matches cursor x */
-        if (cursor->x == digit) {
-          cursorOnThisDigit = 1;
-          if (cursor->y == 0)
-            cursorSegBit = 0; /* a (top)    */
-          else if (cursor->y == 1)
-            cursorSegBit = 6; /* g (middle) */
-          else
-            cursorSegBit = 3; /* d (bottom) */
-        }
-      }
 
-      /* Toggle the cursor segment (XOR to make it blink) */
-      if (cursorOnThisDigit) {
-        segPattern ^= (1 << cursorSegBit);
+        if (cursorOnThisDigit) {
+          fullPattern ^= (1 << cursorSegBit);
+        }
       }
     }
 
-    /* Store results into the display/brightness buffers. */
-    Display_Buffer[digit] = segPattern;
-    Brightness_Buffer[digit] = brightMin;
+    /* Store results into the display buffers. */
+    Display_Buffer_Full[digit] = fullPattern;
+    Display_Buffer_Dim[digit] = dimPattern;
   }
 }
 
@@ -739,16 +690,20 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
  * the pattern before writing.
  *===========================================================================*/
 void Render_Display_Buffer_Digit(uint8_t digit, uint8_t pwm_tick) {
-  uint8_t pattern;
+  uint8_t raw_pattern = 0;
 
-  if (pwm_tick < Brightness_Buffer[digit]) {
-    /* Within the ON portion of the PWM cycle — show the pattern.
-     * Invert for common-anode (0 = segment on). */
-    pattern = ~Display_Buffer[digit] & 0x7F;
-  } else {
-    /* In the OFF portion — blank all segments */
-    pattern = 0x7F; /* All segments OFF for common-anode */
+  /* Add full-brightness segments if within their PWM ON-time */
+  if (pwm_tick < BRIGHT_FULL) {
+    raw_pattern |= Display_Buffer_Full[digit];
   }
+
+  /* Add dimmed segments if within their PWM ON-time */
+  if (pwm_tick < BRIGHT_HALF) {
+    raw_pattern |= Display_Buffer_Dim[digit];
+  }
+
+  /* Invert pattern for common-anode (0 = segment on) and limit to 7 bits */
+  uint8_t pattern = ~raw_pattern & 0x7F;
 
   /* Select just this digit (active low on bits 15:8), output pattern on bits
    * 7:0 */
@@ -787,11 +742,11 @@ void Play_SFX(SoundEffect_t sfx) {
     break;
 
   case SFX_MISS:
-    /* Splash: short descending tone */
-    Song[0] = (Music){G4, _16th, 500, 50, 0};
-    Song[1] = (Music){E4, _16th, 500, 50, 0};
-    Song[2] = (Music){C4, _8th, 500, 100, 0};
-    Song[3] = (Music){rest, quarter, 500, 0, 1};
+    /* Deep splash: very fast dissonant descent */
+    Song[0] = (Music){F3, _8th, 300, 30, 0};
+    Song[1] = (Music){E3, _8th, 300, 30, 0};
+    Song[2] = (Music){C3, _8th, 300, 50, 0};
+    Song[3] = (Music){rest, quarter, 300, 0, 1};
     Music_ON = 1;
     break;
 
@@ -1288,7 +1243,7 @@ void Place_Boats(PlayerMaps_t *maps) {
         for (digit = 0; digit < 8; digit++) {
           uint8_t seg2 = Get_Second_Segment_Bit(&Cursor, orient, digit);
           if (seg2) {
-            Display_Buffer[digit] ^= seg2; /* XOR to blink */
+            Display_Buffer_Full[digit] ^= seg2; /* XOR to blink */
           }
         }
       }
