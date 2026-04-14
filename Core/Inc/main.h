@@ -97,25 +97,22 @@ typedef enum {
  * Player Map Structure
  * Each player has two boat maps and two corresponding shot maps.
  *
- * Boat map encoding (memory-efficient uint32_t):
- *   vertMap:  bits[31:16] = top row of 16 vertical segments
- *             bits[15:0]  = bottom row of 16 vertical segments
- *   horizMap: bits[23:16] = top row of 8 horizontal segments
- *             bits[15:8]  = middle row of 8 horizontal segments
- *             bits[7:0]   = bottom row of 8 horizontal segments
+ * Array-based map encoding:
+ *   vertMap[2][16]:   2 rows x 16 columns of vertical segments
+ *   horizMap[3][8]:   3 rows x 8 columns of horizontal segments
  *
- * Shot map encoding (same bit layout as boat maps):
- *   vertShots:  1 = shot placed at that vertical segment position
- *   horizShots: 1 = shot placed at that horizontal segment position
+ * Shot map encoding (same array layout as boat maps):
+ *   vertShots[2][16]:  1 = shot placed at that vertical segment position
+ *   horizShots[3][8]:  1 = shot placed at that horizontal segment position
  *
  * A '1' in a boat map = boat present; '0' = empty water.
  * A '1' in a shot map = shot fired there; '0' = not yet fired.
  *===========================================================================*/
 typedef struct {
-    uint32_t vertMap;      /* Vertical segment boat positions    */
-    uint32_t horizMap;     /* Horizontal segment boat positions  */
-    uint32_t vertShots;    /* Vertical segment shot history      */
-    uint32_t horizShots;   /* Horizontal segment shot history    */
+    uint8_t vertMap[2][16];     /* Vertical boat positions:   [row 0-1][col 0-15]  */
+    uint8_t horizMap[3][8];     /* Horizontal boat positions: [row 0-2][col 0-7]   */
+    uint8_t vertShots[2][16];   /* Vertical shot history:     [row 0-1][col 0-15]  */
+    uint8_t horizShots[3][8];   /* Horizontal shot history:   [row 0-2][col 0-7]   */
 } PlayerMaps_t;
 
 /*============================================================================
@@ -219,28 +216,14 @@ extern uint16_t Read_ADC(uint8_t channel);
 #define ADC_CH_CURSOR_X      1    /* Potentiometer for horizontal cursor */
 #define ADC_CH_CURSOR_Y      2    /* Potentiometer for vertical cursor   */
 
-/* Switch input pins on Port C */
-#define SW_FIRE_PIN          0x01  /* PC0 - Fire / confirm button         */
-#define SW_MAP_SEL_PIN       0x02  /* PC1 - Toggle vertical/horizontal    */
-#define SW_ORIENT_PIN        0x04  /* PC2 - Toggle boat orientation       */
-#define SW_START_PIN         0x08  /* PC3 - Start / acknowledge button    */
+/* Switch input pins on Port C — only 2 buttons */
+#define SW_CONFIRM_PIN       (1 << 11)  /* PC11 - Confirm / Start / Fire       */
+#define SW_ORIENT_PIN        (1 << 10)  /* PC10 - Orient / V-H map toggle      */
 
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-
-/* Read a specific bit from a uint32_t bitmap */
-#define BIT_READ(map, bit)   (((map) >> (bit)) & 1U)
-
-/* Set a specific bit in a uint32_t bitmap */
-#define BIT_SET(map, bit)    ((map) |= (1U << (bit)))
-
-/* Clear a specific bit in a uint32_t bitmap */
-#define BIT_CLR(map, bit)    ((map) &= ~(1U << (bit)))
-
-/* Count number of set bits in a uint32_t (population count) */
-#define POPCOUNT32(x) __builtin_popcount(x)
 
 /* USER CODE END EM */
 
@@ -255,12 +238,10 @@ void     Game_Run(void);
 void     Place_Boats(PlayerMaps_t *maps);
 uint8_t  Fire_Shot(PlayerMaps_t *targetMaps, Cursor_t *cursor);
 uint8_t  Check_Win(PlayerMaps_t *targetMaps);
-void     Update_Display_From_Maps(PlayerMaps_t *maps, PlayerMaps_t *shotMaps,
-                                  uint8_t showBoats);
+uint8_t  Count_Hits(PlayerMaps_t *targetMaps);
 
 /* ---- Cursor functions ---- */
 void     Cursor_Update_From_ADC(void);
-uint8_t  Cursor_Get_Bit_Index(Cursor_t *c);
 
 /* ---- Display functions ---- */
 void     Display_Clear(void);
@@ -279,7 +260,7 @@ void     Play_Victory_Song(void);
 uint16_t Read_ADC(uint8_t channel);
 
 /* ---- Utility ---- */
-uint8_t  Read_Switches(void);
+uint16_t Read_Switches(void);
 void     Debounce_Delay(void);
 
 /* USER CODE END EFP */
