@@ -1,41 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
- ******************************************************************************
- * @file           : main.c  BATTLESHIP FINAL PROJECT
- * @brief          : Main program body — Electronic Battleship for STM32F407
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2022 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- *
- *  GAME OVERVIEW:
- *  Two-player Battleship game played on 7-segment displays.
- *  Each player places 3 single-segment and 2 double-segment boats.
- *  Players alternate taking shots until one sinks all 7 opponent segments.
- *
- *  HARDWARE MAPPING:
- *  - Port E [7:0]  = 7-segment data, Port E [15:8] = digit select (active low)
- *  - Port A [3:0]  = ADC analog inputs (potentiometers for cursor)
- *  - Port C [3:0]  = Switch inputs (fire, map select, orientation, start)
- *  - Port D [0]    = Speaker/buzzer output (toggled by TIM7 for tones)
- *  - Port D [15:12]= RGB LEDs (PWM dimming)
- *
- *  MAP ENCODING (array-based):
- *  vertMap[2][16]:  [0][0..15] = top row, [1][0..15] = bottom row
- *  horizMap[3][8]:  [0][0..7]  = top row, [1][0..7] = middle, [2][0..7] =
- * bottom
- *
- *  BUTTON MAPPING:
- *  - PC11 = Confirm / Start / Fire
- *  - PC10 = Orient / V-H map toggle
- ******************************************************************************
+ * main.c: BATTLESHIP FINAL PROJECT for STM32F407
+ * Two-player Battleship on 7-segment displays. PC11=Start/Fire, PC10=Orient/Toggle.
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -227,16 +193,7 @@ void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN 0 */
 
-/*============================================================================
- * Read_ADC() — Read a single ADC1 channel with multi-sample averaging
- *
- * @param channel  ADC channel number (0-3 for PA0-PA3)
- * @return         12-bit ADC conversion result (0 - 4095), averaged
- *
- * Takes ADC_SAMPLES (8) consecutive readings and returns the average.
- * This eliminates electrical noise from the potentiometers that would
- * otherwise cause the cursor to jitter between positions.
- *===========================================================================*/
+/* Read ADC1 (PA0-PA3) with multi-sample averaging */
 #define ADC_SAMPLES 8
 
 uint16_t Read_ADC(uint8_t channel) {
@@ -263,40 +220,15 @@ uint16_t Read_ADC(uint8_t channel) {
   return (uint16_t)(sum / ADC_SAMPLES);
 }
 
-/*============================================================================
- * Read_Switches() — Read the switch state from Port C lower nibble
- *
- * @return  Bitmask of pressed switches (active high after inversion
- *          if switches are active-low, adjust as needed for your board)
- *
- * Port C pins are configured as inputs. The physical switch wiring
- * determines whether they are active-high or active-low. This function
- * returns the raw IDR value for the lower nibble so the caller can
- * mask individual switch bits.
- *===========================================================================*/
+/* Read Port C lower nibble (switches) */
 uint16_t Read_Switches(void) {
   return (uint16_t)(GPIOC->IDR & 0x0C00); /* Read PC10 and PC11 */
 }
 
-/*============================================================================
- * Debounce_Delay() — Simple software debounce wait
- *
- * Uses HAL_Delay to wait DEBOUNCE_MS milliseconds. This prevents
- * registering multiple presses from a single button actuation due
- * to mechanical contact bounce.
- *===========================================================================*/
+/* Software debounce delay */
 void Debounce_Delay(void) { HAL_Delay(DEBOUNCE_MS); }
 
-/*============================================================================
- * Set_Marquee_Message() — Configure the scrolling marquee on 7-seg displays
- *
- * @param msg    Pointer to character array (using seg7.h CHAR_X defines)
- * @param len    Total length of the message array
- * @param speed  Scroll speed in milliseconds per step
- *
- * Sets up the global pointers and counters that the SysTick ISR uses
- * to animate the scrolling text across the 8-digit display.
- *===========================================================================*/
+/* Configure scrolling marquee message */
 void Set_Marquee_Message(char *msg, uint8_t len, int speed) {
   Animate_On = 0;        /* Stop any current animation first     */
   Message_Pointer = msg; /* Point to start of new message        */
@@ -307,17 +239,10 @@ void Set_Marquee_Message(char *msg, uint8_t len, int speed) {
   Animate_On = 1;        /* Enable animation in SysTick ISR      */
 }
 
-/*============================================================================
- * Stop_Marquee() — Halt the scrolling marquee display
- *===========================================================================*/
+/* Halt scrolling marquee */
 void Stop_Marquee(void) { Animate_On = 0; }
 
-/*============================================================================
- * Display_Clear() — Blank all 8 digits of the 7-segment display
- *
- * Writes SPACE character to each digit position, effectively turning
- * off all segments. Also resets the display buffer.
- *===========================================================================*/
+/* Clear 7-segment display digits and buffer */
 void Display_Clear(void) {
   uint8_t i;
   for (i = 0; i < 8; i++) {
@@ -327,15 +252,7 @@ void Display_Clear(void) {
   }
 }
 
-/*============================================================================
- * Display_Refresh() — Push the display buffer contents to the physical
- *                     7-segment displays.
- *
- * Called from the main loop when the display buffer has been updated.
- * The SysTick ISR handles PWM dimming by selectively enabling/disabling
- * segments based on the brightness buffer, so this function just latches
- * the base pattern.
- *===========================================================================*/
+/* Refresh physical displays from buffer */
 void Display_Refresh(void) {
   uint8_t i;
   for (i = 0; i < 8; i++) {
@@ -343,29 +260,7 @@ void Display_Refresh(void) {
   }
 }
 
-/*============================================================================
- * ADC_To_Grid_Hysteresis() — Map an ADC value to a grid position with
- *                            hysteresis to prevent jitter.
- *
- * @param adc_val       Current averaged ADC reading (0-4095)
- * @param grid_size     Number of grid positions (e.g. 8, 16, 2, 3)
- * @param current_pos   The current grid position (for hysteresis compare)
- * @return              New grid position (0 to grid_size-1)
- *
- * How it works:
- *   The ADC range (0-4095) is divided into grid_size equal zones.
- *   Each zone has a center and two boundaries. A position change only
- *   occurs when the ADC value moves past the MIDPOINT between the
- *   current position's center and the neighboring position's center.
- *   This creates a "sticky" zone around each position, so small
- *   pot movements or noise won't cause unwanted jumps.
- *
- *   Hysteresis margin = half a zone width = (ADC_MAX+1) / (grid_size * 2)
- *
- *   Example for grid_size=8 (512 ADC counts per zone):
- *     Position 0 center = 256,  stays until ADC > 512+128 = 640  (> halfway to
- * pos 1) Position 3 center = 1792, stays until ADC < 1536-128 or ADC > 2048+128
- *===========================================================================*/
+/* Map ADC value to grid position with hysteresis to prevent jitter */
 uint8_t ADC_To_Grid_Hysteresis(uint16_t adc_val, uint8_t grid_size,
                                uint8_t current_pos) {
   uint16_t zone_width;     /* ADC counts per grid position              */
@@ -416,20 +311,7 @@ uint8_t ADC_To_Grid_Hysteresis(uint16_t adc_val, uint8_t grid_size,
   return current_pos;
 }
 
-/*============================================================================
- * Cursor_Update_From_ADC() — Read potentiometers and update cursor position
- *
- * Reads two ADC channels:
- *   - ADC_CH_CURSOR_X: horizontal position
- *   - ADC_CH_CURSOR_Y: vertical position (row within the current map)
- *
- * Uses multi-sample averaged ADC reads plus hysteresis-based grid mapping
- * for smooth, precise cursor control. The cursor will "stick" to its
- * current position until you clearly turn the pot toward the next one.
- *
- * Vertical map: x ranges 0-15 (16 columns), y = 0 or 1 (2 rows)
- * Horizontal map: x ranges 0-7 (8 columns), y = 0, 1, or 2 (3 rows)
- *===========================================================================*/
+/* Read pots and update cursor position with hysteresis */
 void Cursor_Update_From_ADC(void) {
   uint16_t adc_x, adc_y;
 
@@ -447,12 +329,7 @@ void Cursor_Update_From_ADC(void) {
   }
 }
 
-/*============================================================================
- * Build_Score_Message() — Construct a dynamic score marquee string
- *
- * Fills Msg_Score with "  P1-X P2-Y  " where X and Y are the hit counts.
- * Uses seg7.h character defines for display on the 7-segment marquee.
- *===========================================================================*/
+/* Build dynamic score marquee string "  P1-X P2-Y  " */
 void Build_Score_Message(void) {
   uint8_t idx = 0;
   uint8_t i;
@@ -480,54 +357,7 @@ void Build_Score_Message(void) {
     Msg_Score[idx++] = SPACE;
 }
 
-/*============================================================================
- * Map_To_Display() — Render a player's map onto the 8-digit 7-seg display
- *
- * @param boats     Pointer to the boat map being displayed
- * @param shots     Pointer to the shot map (opponent's shots on this map)
- * @param showBoats If non-zero, show the actual boat positions (for placement)
- *                  If zero, show only shots and hits (opponent's view)
- * @param cursor    Pointer to cursor (NULL if cursor should not be shown)
- *
- * Segment mapping for each 7-segment digit:
- *
- *    --a--          ← horizontal top row
- *   |     |
- *   f     b         ← vertical top row (left pair = f, right pair = b)
- *   |     |
- *    --g--          ← horizontal middle row
- *   |     |
- *   e     c         ← vertical bottom row (left pair = e, right pair = c)
- *   |     |
- *    --d--          ← horizontal bottom row
- *
- * 7-seg bit mapping (standard):
- *   bit 0 = a (top horizontal)
- *   bit 1 = b (top-right vertical)
- *   bit 2 = c (bottom-right vertical)
- *   bit 3 = d (bottom horizontal)
- *   bit 4 = e (bottom-left vertical)
- *   bit 5 = f (top-left vertical)
- *   bit 6 = g (middle horizontal)
- *   bit 7 = dp (decimal point, unused for map)
- *
- * Each digit (0-7) represents one column of the battlefield.
- * The vertical map has 2 rows x 16 columns = 32 segments:
- *   Each digit shows 2 of the 16 vertical columns:
- *     Left vertical pair uses segments f (top) and e (bottom)
- *     Right vertical pair uses segments b (top) and c (bottom)
- * The horizontal map has 3 rows x 8 columns = 24 segments:
- *   Each digit maps to its column, rows map to a (top), g (middle), d (bottom)
- *
- * Brightness control:
- *   - Boat + hit shot = BRIGHT_FULL (100%)
- *   - Miss shot = BRIGHT_HALF (50%)
- *   - Boat (during placement) = BRIGHT_FULL
- *   - Empty = BRIGHT_OFF (off/not lit)
- *
- * Since we are using common-anode displays (active-low segments), a '0' turns
- * a segment ON. We invert our logic when writing to the display.
- *===========================================================================*/
+/* Render player map to 8-digit 7-seg display buffer */
 void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
                     Cursor_t *cursor) {
   uint8_t digit;
@@ -678,17 +508,7 @@ void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
   }
 }
 
-/*============================================================================
- * Render_Display_Buffer() — Output the display buffer to the 7-segment
- *                           hardware via GPIOE.
- *
- * This is called from the SysTick handler for PWM-controlled refresh.
- * For each digit, if the current PWM ramp position is within the
- * brightness level, the segment pattern is shown; otherwise it is blanked.
- *
- * Since common-anode displays need inverted data (0 = on), we invert
- * the pattern before writing.
- *===========================================================================*/
+/* Output PWM-controlled display buffer to GPIOE */
 void Render_Display_Buffer_Digit(uint8_t digit, uint8_t pwm_tick) {
   uint8_t raw_pattern = 0;
 
@@ -716,14 +536,7 @@ void Render_Display_Buffer_Digit(uint8_t digit, uint8_t pwm_tick) {
   GPIOE->ODR |= 0xFF00;
 }
 
-/*============================================================================
- * Play_SFX() — Trigger a sound effect
- *
- * @param sfx  Which sound effect to play
- *
- * Configures the Song array with appropriate notes and activates the
- * music engine in the TIM7 ISR.
- *===========================================================================*/
+/* Trigger a sound effect via TIM7 ISR */
 void Play_SFX(SoundEffect_t sfx) {
   Current_SFX = sfx;
   INDEX = 0;
@@ -775,13 +588,7 @@ void Play_SFX(SoundEffect_t sfx) {
   Save_Note = Song[0].note;
 }
 
-/*============================================================================
- * Play_Victory_Song() — Play a nautical victory fanfare
- *
- * Loads a complete melody into the Song array and starts playback.
- * This is "Anchors Aweigh" simplified for the tone generator:
- *   C-E-G ascending major chord arpeggio, then a triumphant march.
- *===========================================================================*/
+/* Play nautical victory fanfare */
 void Play_Victory_Song(void) {
   INDEX = 0;
   COUNT = 0;
@@ -1004,14 +811,7 @@ uint8_t Count_Hits(PlayerMaps_t *targetMaps) {
   return totalHits;
 }
 
-/*============================================================================
- * Wait_For_Button() — Block until a specific button is pressed and released
- *
- * @param pin  Bitmask of the button pin to wait for (e.g., SW_CONFIRM_PIN)
- *
- * Polls Port C until the specified pin goes high, then waits for release
- * with debouncing.
- *===========================================================================*/
+/* Block until pin is pressed and released */
 void Wait_For_Button(uint16_t pin) {
   /* Wait for button press (active high) */
   while (!(Read_Switches() & pin)) {
@@ -1026,12 +826,7 @@ void Wait_For_Button(uint16_t pin) {
   Debounce_Delay();
 }
 
-/*============================================================================
- * Wait_For_Any_Button() — Block until any button is pressed
- *
- * Used for transition screens where we just need acknowledgement.
- * Returns the button mask that was pressed.
- *===========================================================================*/
+/* Block until any button is pressed */
 uint16_t Wait_For_Any_Button(void) {
   uint16_t sw;
 
@@ -1044,20 +839,7 @@ uint16_t Wait_For_Any_Button(void) {
   return sw;
 }
 
-/*============================================================================
- * Get_Second_Segment_Bit() — For a double boat, return the 7-seg bit of the
- *                            second segment on the given digit.
- *
- * @param c        Cursor position (first segment location)
- * @param orient   0=right, 1=down, 2=left, 3=up
- * @param digit    The display digit we are rendering (0-7)
- * @return         Bitmask with the second segment's bit set for this digit,
- *                 or 0 if the second segment is not on this digit.
- *
- * Used to render a live preview showing BOTH segments of a double boat
- * blinking on the display, so the player can see exactly what they're
- * about to place before confirming.
- *===========================================================================*/
+/* Return 7-seg bit for second segment of a double boat */
 uint8_t Get_Second_Segment_Bit(Cursor_t *c, uint8_t orient, uint8_t digit) {
   int8_t x2 = (int8_t)c->x;
   int8_t y2 = (int8_t)c->y;
@@ -1104,16 +886,7 @@ uint8_t Get_Second_Segment_Bit(Cursor_t *c, uint8_t orient, uint8_t digit) {
   }
 }
 
-/*============================================================================
- * Build_Boat_Announcement() — Build a marquee message for the current boat
- *
- * @param boatNum   Boat number 1-5
- * @param isDouble  0 = single-segment, 1 = double-segment
- * @param buf       Output buffer (must be at least 26 chars)
- * @return          Length of the message
- *
- * Creates messages like "  BOAT 1 SGL  " or "  BOAT 4 DBL  "
- *===========================================================================*/
+/* Build marquee message for current boat (e.g. "BOAT 1 SGL") */
 uint8_t Build_Boat_Announcement(uint8_t boatNum, uint8_t isDouble, char *buf) {
   uint8_t idx = 0;
   uint8_t i;
@@ -1153,27 +926,7 @@ uint8_t Build_Boat_Announcement(uint8_t boatNum, uint8_t isDouble, char *buf) {
   return idx;
 }
 
-/*============================================================================
- * Place_Boats() — Interactive boat placement phase for one player
- *
- * @param maps  Pointer to the player's maps to place boats on
- *
- * Guides the player through placing 5 boats:
- *   3 single-segment boats, then 2 double-segment boats.
- *
- * TWO-BUTTON PLACEMENT FLOW:
- *
- *   The player moves the cursor with the potentiometers and uses:
- *     PC11 (Confirm) — place the boat at the current position
- *     PC10 (Orient)  — for single boats: toggle V/H map layer
- *                       for double boats: cycle through 8 combined states
- *                       (V-right, V-down, V-left, V-up, H-right, H-down,
- *                        H-left, H-up) so both map layer and orientation
- *                        are controlled from one button.
- *
- *   For double boats, BOTH segments blink together as a live preview.
- *   If the position is invalid (overlap or OOB), an error buzz plays.
- *===========================================================================*/
+/* Interactive boat placement phase for one player */
 void Place_Boats(PlayerMaps_t *maps) {
   uint8_t boatsPlaced = 0;       /* Total boats placed so far (0-4)         */
   uint8_t isDouble = 0;          /* 0 = single, 1 = double                  */
@@ -1320,12 +1073,7 @@ void Place_Boats(PlayerMaps_t *maps) {
   DIM_Enable = 0;
 }
 
-/*============================================================================
- * Game_Init() — Initialize all game state for a new game
- *
- * Clears all maps, resets hit counters, and sets the game state machine
- * to the welcome screen.
- *===========================================================================*/
+/* Initialize game state, maps, and cursor */
 void Game_Init(void) {
   /* Clear all player maps */
   memset(&P1_Maps, 0, sizeof(PlayerMaps_t));
@@ -1350,18 +1098,7 @@ void Game_Init(void) {
   Display_Clear();
 }
 
-/*============================================================================
- * Game_Run() — Main game loop state machine
- *
- * Called repeatedly from the while(1) loop.  Each call processes the
- * current game state and transitions to the next when appropriate.
- *
- * State Flow:
- *   WELCOME -> P1_PLACE -> P1_TO_P2_TRANS -> P2_PLACE -> P2_TO_P1_TRANS
- *   -> P1_TURN -> P1_RESULT -> TURN_TRANS_TO_P2
- *   -> P2_TURN -> P2_RESULT -> TURN_TRANS_TO_P1
- *   -> (loop turns until GAME_OVER)
- *===========================================================================*/
+/* Main game loop state machine */
 void Game_Run(void) {
   uint8_t shotResult;
   uint16_t sw;
@@ -1825,13 +1562,7 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   while (1) {
-    /*======================================================================
-     * Main game loop: run the state machine on every iteration.
-     * Each call to Game_Run() processes the current state and may
-     * transition to the next state. The loop runs continuously,
-     * with internal blocking (HAL_Delay, button waits) handled
-     * within each state as needed.
-     *=====================================================================*/
+    /* Main game loop: run state machine */
     Game_Run();
 
     /* USER CODE BEGIN 3 */
