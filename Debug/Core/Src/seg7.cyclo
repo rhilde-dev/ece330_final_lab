@@ -1,0 +1,3 @@
+../Core/Src/seg7.c:199:6:Seven_Segment_Digit	2
+../Core/Src/seg7.c:219:6:Seven_Segment_ASCII	2
+../Core/Src/seg7.c:239:6:Seven_Segment	2
