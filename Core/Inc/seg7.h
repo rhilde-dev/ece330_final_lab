@@ -1,21 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : seg7.h
-  * @brief          : Header for seg7.c library file.
-  *                   This file contains the common defines of the library.
-  ******************************************************************************
-  *
-  *
-  * Copyright (c) 2023 Boise State University
-  * All rights reserved.
-  *
-  * This file provides a library for outputting characters to the 7 segment
-  * displays on the STM32F4 Discovery Peripheral Board for ECE330L lab.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ * seg7.h: Header for 7-segment display library.
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/

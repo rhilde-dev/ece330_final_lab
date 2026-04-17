@@ -1,20 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : seg7.c
-  * @brief          : Main program body
-  ******************************************************************************
-  *
-  *
-  * Copyright (c) 2023 Boise State University
-  * All rights reserved.
-  *
-  * This file provides a library for outputting characters to the 7 segment
-  * displays on the STM32F4 Discovery Peripheral Board for ECE330L lab.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ * seg7.c: 7-segment display library implementation.
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "seg7.h"
@@ -198,10 +185,7 @@ unsigned char _7SEG_ASCII[]=
 
 void Seven_Segment_Digit (unsigned char digit, unsigned char hex_char, unsigned char dot)
 {
-/*******************************************************************************
-Code to mask and bit shift 0-7 value of digit and 0-15 value of hex_char
-to output correct bit pattern to GPIO_Output
-*******************************************************************************/
+/* Output character to 7-segment digit (hex-to-pattern) */
 	// Set selected digit to 0, all others high, and output 7 segment pattern
 	GPIOE->ODR = (0xFF00 | _7SEG[hex_char]) & ~(1<<(digit+8));
 
@@ -218,10 +202,7 @@ to output correct bit pattern to GPIO_Output
 
 void Seven_Segment_ASCII (unsigned char digit, unsigned char ascii_char, unsigned char dot)
 {
-/*******************************************************************************
-Code to mask and bit shift 0-7 value of digit and 0-15 value of hex_char
-to output correct bit pattern to GPIO_Output
-*******************************************************************************/
+/* Output character to 7-segment digit (ASCII-to-pattern) */
 	// Set selected digit to 0, all others high, and output 7 segment pattern
 	GPIOE->ODR = (0xFF00 | _7SEG_ASCII[ascii_char]) & ~(1<<(digit+8));
 
@@ -238,9 +219,7 @@ to output correct bit pattern to GPIO_Output
 
 void Seven_Segment(unsigned int HexValue)
 {
-/******************************************************************************
-Use a for loop to output HexValue to 7 segment display digits
-*******************************************************************************/
+/* Output full hex value to multiple digits */
 	char digit;
 	// Send hex values to lower 4 digits
 	for (digit=0 ; digit<8 ; digit++)
