@@ -187,12 +187,6 @@ static void MX_SPI1_Init(void);
 static void MX_TIM7_Init(void);
 void MX_USB_HOST_Process(void);
 
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* USER CODE BEGIN 0 */
-
 /* Read ADC1 (PA0-PA3) with multi-sample averaging */
 #define ADC_SAMPLES 8
 
@@ -357,182 +351,57 @@ void Build_Score_Message(void) {
     Msg_Score[idx++] = SPACE;
 }
 
+/* Apply one segment's boat/shot state into full/dim pattern buffers */
+#define APPLY_SEG(hasBoat, hasShot, bit, fp, dp) do { \
+  if ((showBoats && (hasBoat)) || ((hasShot) && (hasBoat))) (fp) |= (1<<(bit)); \
+  else if ((hasShot) && !(hasBoat)) (dp) |= (1<<(bit)); \
+} while(0)
+
 /* Render player map to 8-digit 7-seg display buffer */
 void Map_To_Display(PlayerMaps_t *boats, PlayerMaps_t *shots, uint8_t showBoats,
                     Cursor_t *cursor) {
   uint8_t digit;
   for (digit = 0; digit < 8; digit++) {
-    uint8_t fullPattern = 0;
-    uint8_t dimPattern = 0;
+    uint8_t fp = 0, dp = 0;
+    uint8_t col0 = digit * 2, col1 = digit * 2 + 1;
 
-    /*------------------------------------------------------------------
-     * Horizontal segments: top (a), middle (g), bottom (d)
-     *-----------------------------------------------------------------*/
-    /* Top horizontal row — segment 'a' (bit 0) */
-    {
-      uint8_t hasBoat = boats->horizMap[0][digit];
-      uint8_t hasShot = shots->horizShots[0][digit];
+    /* Horizontal segments: top(a=0), mid(g=6), bot(d=3) */
+    APPLY_SEG(boats->horizMap[0][digit], shots->horizShots[0][digit], 0, fp, dp);
+    APPLY_SEG(boats->horizMap[1][digit], shots->horizShots[1][digit], 6, fp, dp);
+    APPLY_SEG(boats->horizMap[2][digit], shots->horizShots[2][digit], 3, fp, dp);
+    /* Vertical segments: f=5, b=1, e=4, c=2 */
+    APPLY_SEG(boats->vertMap[0][col0], shots->vertShots[0][col0], 5, fp, dp);
+    APPLY_SEG(boats->vertMap[0][col1], shots->vertShots[0][col1], 1, fp, dp);
+    APPLY_SEG(boats->vertMap[1][col0], shots->vertShots[1][col0], 4, fp, dp);
+    APPLY_SEG(boats->vertMap[1][col1], shots->vertShots[1][col1], 2, fp, dp);
 
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 0);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 0);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 0);
-    }
-
-    /* Middle horizontal row — segment 'g' (bit 6) */
-    {
-      uint8_t hasBoat = boats->horizMap[1][digit];
-      uint8_t hasShot = shots->horizShots[1][digit];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 6);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 6);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 6);
-    }
-
-    /* Bottom horizontal row — segment 'd' (bit 3) */
-    {
-      uint8_t hasBoat = boats->horizMap[2][digit];
-      uint8_t hasShot = shots->horizShots[2][digit];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 3);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 3);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 3);
-    }
-
-    /*------------------------------------------------------------------
-     * Vertical segments: left pair (f=top, e=bottom),
-     *                    right pair (b=top, c=bottom)
-     *-----------------------------------------------------------------*/
-    /* Left-top vertical — segment 'f' (bit 5) */
-    {
-      uint8_t col = digit * 2;
-      uint8_t hasBoat = boats->vertMap[0][col];
-      uint8_t hasShot = shots->vertShots[0][col];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 5);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 5);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 5);
-    }
-
-    /* Right-top vertical — segment 'b' (bit 1) */
-    {
-      uint8_t col = digit * 2 + 1;
-      uint8_t hasBoat = boats->vertMap[0][col];
-      uint8_t hasShot = shots->vertShots[0][col];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 1);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 1);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 1);
-    }
-
-    /* Left-bottom vertical — segment 'e' (bit 4) */
-    {
-      uint8_t col = digit * 2;
-      uint8_t hasBoat = boats->vertMap[1][col];
-      uint8_t hasShot = shots->vertShots[1][col];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 4);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 4);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 4);
-    }
-
-    /* Right-bottom vertical — segment 'c' (bit 2) */
-    {
-      uint8_t col = digit * 2 + 1;
-      uint8_t hasBoat = boats->vertMap[1][col];
-      uint8_t hasShot = shots->vertShots[1][col];
-
-      if (showBoats && hasBoat)
-        fullPattern |= (1 << 2);
-      else if (hasShot && hasBoat)
-        fullPattern |= (1 << 2);
-      else if (hasShot && !hasBoat)
-        dimPattern |= (1 << 2);
-    }
-
-    /*------------------------------------------------------------------
-     * Cursor Blink Logic
-     *-----------------------------------------------------------------*/
-    if (cursor && cursor->visible) {
-      if (Blink_State) {
-        uint8_t cursorOnThisDigit = 0;
-        uint8_t cursorSegBit = 0;
-
-        if (cursor->onVertical) {
-          if (cursor->x / 2 == digit) {
-            cursorOnThisDigit = 1;
-            uint8_t isLeft = (cursor->x % 2 == 0) ? 1 : 0;
-            if (cursor->y == 0)
-              cursorSegBit = isLeft ? 5 : 1;
-            else
-              cursorSegBit = isLeft ? 4 : 2;
-          }
-        } else {
-          if (cursor->x == digit) {
-            cursorOnThisDigit = 1;
-            if (cursor->y == 0)
-              cursorSegBit = 0;
-            else if (cursor->y == 1)
-              cursorSegBit = 6;
-            else
-              cursorSegBit = 3;
-          }
-        }
-
-        if (cursorOnThisDigit) {
-          fullPattern ^= (1 << cursorSegBit);
-        }
+    /* Cursor blink */
+    if (cursor && cursor->visible && Blink_State) {
+      uint8_t onDigit = 0, segBit = 0;
+      if (cursor->onVertical && cursor->x / 2 == digit) {
+        uint8_t isLeft = (cursor->x % 2 == 0);
+        segBit = (cursor->y == 0) ? (isLeft ? 5 : 1) : (isLeft ? 4 : 2);
+        onDigit = 1;
+      } else if (!cursor->onVertical && cursor->x == digit) {
+        segBit = (cursor->y == 0) ? 0 : (cursor->y == 1) ? 6 : 3;
+        onDigit = 1;
       }
+      if (onDigit) fp ^= (1 << segBit);
     }
 
-    /* Store results into the display buffers. */
-    Display_Buffer_Full[digit] = fullPattern;
-    Display_Buffer_Dim[digit] = dimPattern;
+    Display_Buffer_Full[digit] = fp;
+    Display_Buffer_Dim[digit] = dp;
   }
 }
 
 /* Output PWM-controlled display buffer to GPIOE */
 void Render_Display_Buffer_Digit(uint8_t digit, uint8_t pwm_tick) {
-  uint8_t raw_pattern = 0;
-
-  /* Add full-brightness segments if within their PWM ON-time */
-  if (pwm_tick < BRIGHT_FULL) {
-    raw_pattern |= Display_Buffer_Full[digit];
-  }
-
-  /* Add dimmed segments if within their PWM ON-time */
-  if (pwm_tick < BRIGHT_HALF) {
-    raw_pattern |= Display_Buffer_Dim[digit];
-  }
-
-  /* Invert pattern for common-anode (0 = segment on) and limit to 7 bits */
-  uint8_t pattern = ~raw_pattern & 0x7F;
-
-  /* Select just this digit (active low on bits 15:8), output pattern on bits
-   * 7:0 */
+  uint8_t raw = 0;
+  if (pwm_tick < BRIGHT_FULL) raw |= Display_Buffer_Full[digit];
+  if (pwm_tick < BRIGHT_HALF) raw |= Display_Buffer_Dim[digit];
+  /* Invert for common-anode; bit7=1 forces dot pin HIGH (dot OFF) */
+  uint8_t pattern = (~raw & 0x7F) | 0x80;
   GPIOE->ODR = (0xFF00 | pattern) & ~(1 << (digit + 8));
-
-  /* Brief hold time for the segment to be visible */
-  /* (The ISR runs fast enough that sequential digit scanning works) */
-
-  /* Deselect all digits to latch */
   GPIOE->ODR |= 0xFF00;
 }
 
@@ -629,13 +498,7 @@ void Play_Victory_Song(void) {
 
 /*============================================================================
  * Validate_Placement() — Check if a boat placement is valid
- *
- * @param maps       Pointer to the player's current maps
- * @param cursor     Current cursor position
- * @param isDouble   0 = single-segment boat, 1 = double-segment boat
- * @param orient     For double boats: 0=right, 1=down, 2=left, 3=up
- * @return           1 if valid, 0 if invalid (overlap or out of bounds)
- *
+
  * Single boats occupy exactly one segment.
  * Double boats occupy two adjacent segments that stay together as a unit.
  *
@@ -702,13 +565,6 @@ uint8_t Validate_Placement(PlayerMaps_t *maps, Cursor_t *c, uint8_t isDouble,
 
 /*============================================================================
  * Apply_Placement() — Place a boat onto the map at the cursor position
- *
- * @param maps       Pointer to the player's maps
- * @param cursor     Current cursor position
- * @param isDouble   0 = single, 1 = double
- * @param orient     For doubles: 0=right, 1=down, 2=left, 3=up
- *
- * Sets the appropriate array element(s) to 1.
  *===========================================================================*/
 void Apply_Placement(PlayerMaps_t *maps, Cursor_t *c, uint8_t isDouble,
                      uint8_t orient) {
@@ -723,7 +579,6 @@ void Apply_Placement(PlayerMaps_t *maps, Cursor_t *c, uint8_t isDouble,
     int8_t x2 = (int8_t)c->x;
     int8_t y2 = (int8_t)c->y;
 
-    /* Lock second segment position based on hardware orientation */
     if (c->onVertical) {
       y2 = c->y + 1; /* Always extend down on vertical map */
       maps->vertMap[y2][x2] = 1;
@@ -736,12 +591,6 @@ void Apply_Placement(PlayerMaps_t *maps, Cursor_t *c, uint8_t isDouble,
 
 /*============================================================================
  * Fire_Shot() — Process a shot from the current player
- *
- * @param targetMaps  Pointer to the opponent's maps (boats + shots)
- * @param cursor      Current cursor position (where to fire)
- * @return            2 if already shot there, 1 if hit, 0 if miss
- *
- * Records the shot in the appropriate shot array and checks for a hit.
  *===========================================================================*/
 uint8_t Fire_Shot(PlayerMaps_t *targetMaps, Cursor_t *cursor) {
   uint8_t x = cursor->x;
@@ -775,12 +624,6 @@ uint8_t Fire_Shot(PlayerMaps_t *targetMaps, Cursor_t *cursor) {
 
 /*============================================================================
  * Check_Win() — Check if all of a player's boats have been hit
- *
- * @param targetMaps  Pointer to the maps of the player being attacked
- * @return            1 if all 7 boat segments have been hit, 0 otherwise
- *
- * A boat segment is "sunk" when both the boat array and shot array
- * have a 1 at the same position.
  *===========================================================================*/
 uint8_t Check_Win(PlayerMaps_t *targetMaps) {
   return (Count_Hits(targetMaps) >= TOTAL_BOAT_SEGMENTS) ? 1 : 0;
@@ -788,9 +631,6 @@ uint8_t Check_Win(PlayerMaps_t *targetMaps) {
 
 /*============================================================================
  * Count_Hits() — Count how many boat segments have been hit
- *
- * @param targetMaps  Pointer to the maps of the player being attacked
- * @return            Number of hit boat segments (0-7)
  *===========================================================================*/
 uint8_t Count_Hits(PlayerMaps_t *targetMaps) {
   uint8_t totalHits = 0;
@@ -1194,150 +1034,17 @@ void Game_Run(void) {
     break;
 
   /*----------------------------------------------------------------------
-   * STATE_P1_TURN: Player 1 aims and fires at Player 2's map
-   *
-   * Display shows P2's map from P1's perspective:
-   *   - Boats are HIDDEN (showBoats = 0)
-   *   - Previous shots shown (hits at 100%, misses at 50%)
-   *   - Blinking cursor for aiming
+   * STATE_P1_TURN / STATE_P2_TURN: shared firing loop
    *---------------------------------------------------------------------*/
-  case STATE_P1_TURN: {
-    uint8_t prevConfirm = 1; /* Init to 1 to ignore initial hold */
-    uint8_t prevOrient = 0;
-
-    /* Brief turn announcement */
-    Set_Marquee_Message(Msg_P1Turn, sizeof(Msg_P1Turn), 150);
-    HAL_Delay(1500);
-    Stop_Marquee();
-
-    /* Interactive firing loop */
-    Cursor.onVertical = 0;
-    Cursor.x = 255; /* Force ADC snap */
-    Cursor.y = 255;
-
-    while (1) {
-      Cursor_Update_From_ADC();
-
-      /* Show P2's map (opponent's boats hidden, P1's shots visible) */
-      Map_To_Display(&P2_Maps, &P2_Maps, 0, &Cursor);
-      Display_Refresh();
-
-      sw = Read_Switches();
-
-      /* Toggle map layer */
-      if ((sw & SW_ORIENT_PIN) && !prevOrient) {
-        Cursor.onVertical ^= 1;
-        Cursor.x = 255;
-        Cursor.y = 255;
-        Debounce_Delay();
-      }
-      prevOrient = (sw & SW_ORIENT_PIN) ? 1 : 0;
-
-      /* Fire button */
-      if ((sw & SW_CONFIRM_PIN) && !prevConfirm) {
-        shotResult = Fire_Shot(&P2_Maps, &Cursor);
-
-        if (shotResult == 2) {
-          /* Already shot here — play error, try again */
-          Play_SFX(SFX_ERROR);
-          Debounce_Delay();
-        } else if (shotResult == 1) {
-          /* HIT! */
-          Play_SFX(SFX_HIT);
-          P1_Hits = Count_Hits(&P2_Maps);
-
-          /* Flash the LEDs green for a hit */
-          DIM_Enable = 1;
-          GREEN_BRT = 10;
-          RED_BRT = 0;
-          BLUE_BRT = 0;
-
-          Game_State = STATE_P1_RESULT;
-          Debounce_Delay();
-          break;
-        } else {
-          /* MISS */
-          Play_SFX(SFX_MISS);
-
-          /* Flash LEDs blue for a miss */
-          DIM_Enable = 1;
-          GREEN_BRT = 0;
-          RED_BRT = 0;
-          BLUE_BRT = 10;
-
-          Game_State = STATE_P1_RESULT;
-          Debounce_Delay();
-          break;
-        }
-      }
-      prevConfirm = (sw & SW_CONFIRM_PIN) ? 1 : 0;
-
-      HAL_Delay(20);
-    }
-    break;
-  }
-
-  /*----------------------------------------------------------------------
-   * STATE_P1_RESULT: Show the result of Player 1's shot
-   *---------------------------------------------------------------------*/
-  case STATE_P1_RESULT: {
-    uint8_t lastShotWasHit;
-
-    /* Determine what happened on the last shot */
-    lastShotWasHit = (GREEN_BRT > 0) ? 1 : 0;
-
-    if (lastShotWasHit) {
-      Set_Marquee_Message(Msg_Hit, sizeof(Msg_Hit), 100);
-    } else {
-      Set_Marquee_Message(Msg_Miss, sizeof(Msg_Miss), 100);
-    }
-
-    HAL_Delay(RESULT_DISPLAY_MS);
-    Stop_Marquee();
-    DIM_Enable = 0;
-
-    /* Check for win condition */
-    if (Check_Win(&P2_Maps)) {
-      Game_State = STATE_GAME_OVER;
-    } else {
-      Game_State = STATE_TURN_TRANS_TO_P2;
-    }
-    break;
-  }
-
-  /*----------------------------------------------------------------------
-   * STATE_TURN_TRANS_TO_P2: Transition between P1 and P2 turns
-   * Shows score and prompts controller hand-off.
-   *---------------------------------------------------------------------*/
-  case STATE_TURN_TRANS_TO_P2:
-    Display_Clear();
-
-    P1_Hits = Count_Hits(&P2_Maps);
-    P2_Hits = Count_Hits(&P1_Maps);
-    Build_Score_Message();
-    Set_Marquee_Message(Msg_Score, sizeof(Msg_Score), 180);
-    HAL_Delay(TRANSITION_MS);
-    Stop_Marquee();
-
-    /* Show "PASS TO P2" */
-    Set_Marquee_Message(Msg_PassToP2, sizeof(Msg_PassToP2), 180);
-    Wait_For_Any_Button();
-
-    Stop_Marquee();
-    Display_Clear();
-    Current_Player = 2;
-    Game_State = STATE_P2_TURN;
-    break;
-
-  /*----------------------------------------------------------------------
-   * STATE_P2_TURN: Player 2 aims and fires at Player 1's map
-   * Mirror logic of STATE_P1_TURN but targeting P1's maps.
-   *---------------------------------------------------------------------*/
+  case STATE_P1_TURN:
   case STATE_P2_TURN: {
     uint8_t prevConfirm = 1;
     uint8_t prevOrient = 0;
+    uint8_t isP1 = (Game_State == STATE_P1_TURN);
+    PlayerMaps_t *targetMaps = isP1 ? &P2_Maps : &P1_Maps;
 
-    Set_Marquee_Message(Msg_P2Turn, sizeof(Msg_P2Turn), 150);
+    Set_Marquee_Message(isP1 ? Msg_P1Turn : Msg_P2Turn,
+                        isP1 ? sizeof(Msg_P1Turn) : sizeof(Msg_P2Turn), 150);
     HAL_Delay(1500);
     Stop_Marquee();
 
@@ -1347,13 +1054,10 @@ void Game_Run(void) {
 
     while (1) {
       Cursor_Update_From_ADC();
-
-      /* Show P1's map (P1's boats hidden, P2's shots visible) */
-      Map_To_Display(&P1_Maps, &P1_Maps, 0, &Cursor);
+      Map_To_Display(targetMaps, targetMaps, 0, &Cursor);
       Display_Refresh();
 
       sw = Read_Switches();
-
       if ((sw & SW_ORIENT_PIN) && !prevOrient) {
         Cursor.onVertical ^= 1;
         Cursor.x = 255;
@@ -1363,93 +1067,73 @@ void Game_Run(void) {
       prevOrient = (sw & SW_ORIENT_PIN) ? 1 : 0;
 
       if ((sw & SW_CONFIRM_PIN) && !prevConfirm) {
-        shotResult = Fire_Shot(&P1_Maps, &Cursor);
-
+        shotResult = Fire_Shot(targetMaps, &Cursor);
         if (shotResult == 2) {
           Play_SFX(SFX_ERROR);
           Debounce_Delay();
-        } else if (shotResult == 1) {
-          /* HIT */
-          Play_SFX(SFX_HIT);
-          P2_Hits = Count_Hits(&P1_Maps);
-
-          DIM_Enable = 1;
-          GREEN_BRT = 10;
-          RED_BRT = 0;
-          BLUE_BRT = 0;
-
-          Game_State = STATE_P2_RESULT;
-          Debounce_Delay();
-          break;
         } else {
-          /* MISS */
-          Play_SFX(SFX_MISS);
-
-          DIM_Enable = 1;
-          GREEN_BRT = 0;
-          RED_BRT = 0;
-          BLUE_BRT = 10;
-
-          Game_State = STATE_P2_RESULT;
+          if (shotResult == 1) {
+            Play_SFX(SFX_HIT);
+            if (isP1) P1_Hits = Count_Hits(&P2_Maps);
+            else      P2_Hits = Count_Hits(&P1_Maps);
+            DIM_Enable = 1; GREEN_BRT = 10; RED_BRT = 0; BLUE_BRT = 0;
+          } else {
+            Play_SFX(SFX_MISS);
+            DIM_Enable = 1; GREEN_BRT = 0; RED_BRT = 0; BLUE_BRT = 10;
+          }
+          Game_State = isP1 ? STATE_P1_RESULT : STATE_P2_RESULT;
           Debounce_Delay();
           break;
         }
       }
       prevConfirm = (sw & SW_CONFIRM_PIN) ? 1 : 0;
-
       HAL_Delay(20);
     }
     break;
   }
 
   /*----------------------------------------------------------------------
-   * STATE_P2_RESULT: Show the result of Player 2's shot
+   * STATE_P1_RESULT / STATE_P2_RESULT: shared result display
    *---------------------------------------------------------------------*/
+  case STATE_P1_RESULT:
   case STATE_P2_RESULT: {
-    uint8_t lastShotWasHit;
-
-    lastShotWasHit = (GREEN_BRT > 0) ? 1 : 0;
-
-    if (lastShotWasHit) {
+    uint8_t isP1res = (Game_State == STATE_P1_RESULT);
+    if (GREEN_BRT > 0)
       Set_Marquee_Message(Msg_Hit, sizeof(Msg_Hit), 100);
-    } else {
+    else
       Set_Marquee_Message(Msg_Miss, sizeof(Msg_Miss), 100);
-    }
-
     HAL_Delay(RESULT_DISPLAY_MS);
     Stop_Marquee();
     DIM_Enable = 0;
-
-    /* Check for win condition */
-    if (Check_Win(&P1_Maps)) {
-      Game_State = STATE_GAME_OVER;
-    } else {
-      Game_State = STATE_TURN_TRANS_TO_P1;
-    }
+    if (isP1res)
+      Game_State = Check_Win(&P2_Maps) ? STATE_GAME_OVER : STATE_TURN_TRANS_TO_P2;
+    else
+      Game_State = Check_Win(&P1_Maps) ? STATE_GAME_OVER : STATE_TURN_TRANS_TO_P1;
     break;
   }
 
   /*----------------------------------------------------------------------
-   * STATE_TURN_TRANS_TO_P1: Transition between P2 and P1 turns
+   * STATE_TURN_TRANS_TO_P2 / STATE_TURN_TRANS_TO_P1: shared transition
    *---------------------------------------------------------------------*/
-  case STATE_TURN_TRANS_TO_P1:
+  case STATE_TURN_TRANS_TO_P2:
+  case STATE_TURN_TRANS_TO_P1: {
+    uint8_t toP2 = (Game_State == STATE_TURN_TRANS_TO_P2);
     Display_Clear();
-
     P1_Hits = Count_Hits(&P2_Maps);
     P2_Hits = Count_Hits(&P1_Maps);
     Build_Score_Message();
     Set_Marquee_Message(Msg_Score, sizeof(Msg_Score), 180);
     HAL_Delay(TRANSITION_MS);
     Stop_Marquee();
-
-    Set_Marquee_Message(Msg_PassToP1, sizeof(Msg_PassToP1), 180);
+    Set_Marquee_Message(toP2 ? Msg_PassToP2 : Msg_PassToP1,
+                        toP2 ? sizeof(Msg_PassToP2) : sizeof(Msg_PassToP1), 180);
     Wait_For_Any_Button();
-
     Stop_Marquee();
     Display_Clear();
-    Current_Player = 1;
-    Game_State = STATE_P1_TURN;
+    if (toP2) { Current_Player = 2; Game_State = STATE_P2_TURN; }
+    else       { Current_Player = 1; Game_State = STATE_P1_TURN; }
     break;
+  }
 
   /*----------------------------------------------------------------------
    * STATE_GAME_OVER: Declare the winner and play victory music
@@ -1502,9 +1186,6 @@ void Game_Run(void) {
  * @retval int
  */
 int main(void) {
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -1512,16 +1193,8 @@ int main(void) {
    */
   HAL_Init();
 
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -1556,16 +1229,12 @@ int main(void) {
   /*** Initialize the game ***/
   Game_Init();
 
-  /* USER CODE END 2 */
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
   while (1) {
     /* Main game loop: run state machine */
     Game_Run();
 
-    /* USER CODE BEGIN 3 */
   }
 }
 
@@ -1618,13 +1287,6 @@ void SystemClock_Config(void) {
  */
 static void MX_I2C1_Init(void) {
 
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -1637,9 +1299,7 @@ static void MX_I2C1_Init(void) {
   if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
 
-  /* USER CODE END I2C1_Init 2 */
 }
 
 /**
@@ -1649,13 +1309,6 @@ static void MX_I2C1_Init(void) {
  */
 static void MX_I2S3_Init(void) {
 
-  /* USER CODE BEGIN I2S3_Init 0 */
-
-  /* USER CODE END I2S3_Init 0 */
-
-  /* USER CODE BEGIN I2S3_Init 1 */
-
-  /* USER CODE END I2S3_Init 1 */
   hi2s3.Instance = SPI3;
   hi2s3.Init.Mode = I2S_MODE_MASTER_TX;
   hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
@@ -1668,9 +1321,7 @@ static void MX_I2S3_Init(void) {
   if (HAL_I2S_Init(&hi2s3) != HAL_OK) {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2S3_Init 2 */
 
-  /* USER CODE END I2S3_Init 2 */
 }
 
 /**
@@ -1680,13 +1331,6 @@ static void MX_I2S3_Init(void) {
  */
 static void MX_SPI1_Init(void) {
 
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
   /* SPI1 parameter configuration*/
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
@@ -1703,9 +1347,6 @@ static void MX_SPI1_Init(void) {
   if (HAL_SPI_Init(&hspi1) != HAL_OK) {
     Error_Handler();
   }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
 }
 
 /**
@@ -1714,16 +1355,8 @@ static void MX_SPI1_Init(void) {
  * @retval None
  */
 static void MX_TIM7_Init(void) {
-
-  /* USER CODE BEGIN TIM7_Init 0 */
-
-  /* USER CODE END TIM7_Init 0 */
-
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE BEGIN TIM7_Init 1 */
-
-  /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 0;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -1737,9 +1370,6 @@ static void MX_TIM7_Init(void) {
   if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM7_Init 2 */
-
-  /* USER CODE END TIM7_Init 2 */
 }
 
 /**
@@ -1835,14 +1465,7 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
 
 /**
  * @brief  This function is executed in case of error occurrence.
